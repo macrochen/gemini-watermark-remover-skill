@@ -1,6 +1,9 @@
 import os
 import sys
 import urllib.request
+import argparse
+import subprocess
+import platform
 from PIL import Image, ImageOps
 import numpy as np
 
@@ -53,14 +56,6 @@ def scan_for_watermark(img_pixels, mask_arr, search_margin=200):
     best_x, best_y = iw - mw, ih - mh
     min_diff = float('inf')
     
-    # Optimization: Check corners first (most likely locations)
-    # Then do a sparse scan, then refine? 
-    # For now, full scan is fast enough on small search area (200x200)
-    
-    # To speed up python loop, we can use slice broadcasting if search area is small
-    # But nested loop is clearer. Let's optimize by checking every 2nd pixel first?
-    # Or just keep it simple. 200x200 = 40k checks. Fast enough.
-    
     for y in range(start_y, ih - mh + 1):
         for x in range(start_x, iw - mw + 1):
             patch = img_pixels[y:y+mh, x:x+mw, :3]
@@ -73,14 +68,33 @@ def scan_for_watermark(img_pixels, mask_arr, search_margin=200):
                 
     return min_diff, best_x, best_y
 
-def process_image(image_path, output_path):
+def copy_to_clipboard(file_path):
+    if platform.system() != 'Darwin':
+        print("Warning: Clipboard copy is currently only supported on macOS.")
+        return
+
+    abs_path = os.path.abspath(file_path)
+    
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in ['.jpg', '.jpeg']:
+         apple_script = f'set the clipboard to (read (POSIX file "{abs_path}") as JPEG picture)'
+    else:
+         apple_script = f'set the clipboard to (read (POSIX file "{abs_path}") as «class PNGf»)'
+    
+    try:
+        subprocess.run(["osascript", "-e", apple_script], check=True)
+        print("Image copied to clipboard.")
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to copy to clipboard: {e}")
+
+def process_image(image_path, output_path=None):
     print(f"Processing: {image_path}")
     
     try:
         img = Image.open(image_path).convert("RGBA")
     except IOError:
         print("Cannot open image.")
-        return
+        return None
 
     pixels = np.array(img).astype(float)
     ih, iw, _ = pixels.shape
@@ -117,7 +131,7 @@ def process_image(image_path, output_path):
 
     if not best_candidate:
         print("Could not detect any watermark.")
-        return
+        return None
 
     print(f"Selected Best Match: {best_candidate['size']}px mask at ({best_candidate['x']}, {best_candidate['y']})")
     
@@ -151,22 +165,17 @@ def process_image(image_path, output_path):
     
     result_img.save(output_path)
     print(f"Done. Saved to {output_path}")
-    
-    result_img = Image.fromarray(pixels.astype(np.uint8))
-    
-    if not output_path:
-        base, ext = os.path.splitext(image_path)
-        output_path = f"{base}_clean{ext}"
-    
-    result_img.save(output_path)
-    print(f"Done. Saved to {output_path}")
+    return output_path
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python remover.py <image_path> [output_path]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Remove Gemini watermark")
+    parser.add_argument("image_path", help="Path to input image")
+    parser.add_argument("output_path", nargs="?", help="Path to output image")
+    parser.add_argument("--copy", action="store_true", help="Copy result to clipboard (macOS only)")
     
-    img_path = sys.argv[1]
-    out_path = sys.argv[2] if len(sys.argv) > 2 else None
+    args = parser.parse_args()
     
-    process_image(img_path, out_path)
+    final_path = process_image(args.image_path, args.output_path)
+    
+    if args.copy and final_path:
+        copy_to_clipboard(final_path)
