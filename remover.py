@@ -12,7 +12,7 @@ MASK_URLS = {
     48: "https://raw.githubusercontent.com/journey-ad/gemini-watermark-remover/main/src/assets/bg_48.png",
     96: "https://raw.githubusercontent.com/journey-ad/gemini-watermark-remover/main/src/assets/bg_96.png"
 }
-CACHE_DIR = os.path.expanduser("~/.gemini/assets/masks")
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "masks")
 
 def get_mask_path(size):
     if not os.path.exists(CACHE_DIR):
@@ -101,42 +101,45 @@ def process_image(image_path, output_path=None):
     
     print(f"Image Size: {iw}x{ih}")
     
-    # Strategy: Try BOTH 48px and 96px masks, pick the best match.
-    mask_sizes = [48, 96]
-    best_candidate = None
-    lowest_score = float('inf')
-    
-    print("Detecting watermark size and position...")
-    
-    for size in mask_sizes:
-        mask_path = get_mask_path(size)
-        try:
-            mask_img = Image.open(mask_path).convert("RGB")
-            mask_arr = np.array(mask_img).astype(float)
-            
-            # Scan
-            score, x, y = scan_for_watermark(pixels, mask_arr)
-            print(f"  - Testing {size}px mask: Match Score = {score:.4f} at ({x}, {y})")
-            
-            if score < lowest_score:
-                lowest_score = score
-                best_candidate = {
-                    'size': size,
-                    'mask_arr': mask_arr,
-                    'x': x,
-                    'y': y
-                }
-        except Exception as e:
-            print(f"  - Failed to test {size}px mask: {e}")
+    # Detect watermark configuration based on image size (TypeScript rules)
+    imageWidth = iw
+    imageHeight = ih
 
-    if not best_candidate:
-        print("Could not detect any watermark.")
+    logoSize = 48
+    marginRight = 32
+    marginBottom = 32
+
+    if imageWidth > 1024 and imageHeight > 1024:
+        logoSize = 96
+        marginRight = 64
+        marginBottom = 64
+    
+    x = imageWidth - marginRight - logoSize
+    y = imageHeight - marginBottom - logoSize
+    width = logoSize
+    height = logoSize
+
+    print(f"Detected watermark config: size={logoSize}, position=({x}, {y}), margins=({marginRight}, {marginBottom})")
+
+    # Load the specific mask based on determined logoSize
+    mask_path = get_mask_path(logoSize)
+    try:
+        mask_img = Image.open(mask_path).convert("RGB")
+        mask_arr = np.array(mask_img).astype(float)
+    except Exception as e:
+        print(f"Error loading mask for size {logoSize}px: {e}")
         return None
 
-    print(f"Selected Best Match: {best_candidate['size']}px mask at ({best_candidate['x']}, {best_candidate['y']})")
+    # Now define best_candidate based on this deterministic detection
+    best_candidate = {
+        'size': logoSize,
+        'mask_arr': mask_arr,
+        'x': x,
+        'y': y
+    }
     
     # Perform Restoration
-    mask_arr = best_candidate['mask_arr']
+    mask_arr = best_candidate['mask_arr'] # This mask_arr is used for shape and alpha map calc
     bx, by = best_candidate['x'], best_candidate['y']
     mh, mw, _ = mask_arr.shape
     
@@ -144,12 +147,15 @@ def process_image(image_path, output_path=None):
     alpha_map = np.max(mask_arr, axis=2) / 255.0
     alpha_expanded = alpha_map[:, :, np.newaxis]
     
+    # Define 'M' (logo) as pure white (255, 255, 255)
+    logo_white = np.full((mh, mw, 3), 255.0) 
+
     # Extract Patch
     patch_rgba = pixels[by:by+mh, bx:bx+mw]
     patch_rgb = patch_rgba[:, :, :3]
     
     # Math: O = (I - M) / (1 - A)
-    numerator = np.maximum(patch_rgb - mask_arr, 0)
+    numerator = patch_rgb - (255.0 * alpha_expanded)
     denominator = np.maximum(1.0 - alpha_expanded, 0.01)
     
     restored_rgb = np.clip(numerator / denominator, 0, 255)
@@ -163,6 +169,11 @@ def process_image(image_path, output_path=None):
         base, ext = os.path.splitext(image_path)
         output_path = f"{base}_clean{ext}"
     
+    # Explicitly remove existing file to ensure overwrite, as requested by user.
+    if os.path.exists(output_path):
+        os.remove(output_path)
+        print(f"Removed existing output file: {output_path}")
+        
     result_img.save(output_path)
     print(f"Done. Saved to {output_path}")
     return output_path
