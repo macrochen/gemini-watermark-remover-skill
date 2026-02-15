@@ -139,12 +139,16 @@ def process_image(image_path, output_path=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Remove Gemini watermark")
     parser.add_argument("image_path", nargs="?", help="Path to input image (default: latest in Downloads)")
-    parser.add_argument("output_path", nargs="?", help="Path to output image")
+    parser.add_argument("output_path", nargs="?", help="Path to output image (positional)")
+    parser.add_argument("-o", "--output", dest="output_named", help="Path to output image (named)")
     parser.add_argument("--copy", action="store_true", help="Copy result to clipboard (macOS only)")
     
     args = parser.parse_args()
     
-    final_path = process_image(args.image_path, args.output_path)
+    # Priority: --output / -o > output_path (positional)
+    actual_output = args.output_named or args.output_path
+    
+    final_path = process_image(args.image_path, actual_output)
     
     if args.copy and final_path:
         copy_to_clipboard(final_path)
