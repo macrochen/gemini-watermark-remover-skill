@@ -304,7 +304,7 @@
     </section>
 
     <section class="note">
-      <strong>使用方式：</strong>点击“选择图片”或直接把图片拖进页面即可。根路径 <code>/</code> 会自动打开这个工具页，首次联网访问后也会缓存基础资源，之后离线仍可继续使用。
+      <strong>使用方式：</strong>点击“选择图片”、直接把图片拖进页面，或复制图片后在页面里按 <code>Ctrl/Cmd + V</code> 即可。根路径 <code>/</code> 会自动打开这个工具页，首次联网访问后也会缓存基础资源，之后离线仍可继续使用。
       <br>
       <strong>处理规则：</strong>页面内置了两套 Gemini 遮罩：<code>48px</code> 和 <code>96px</code>。判断规则与原脚本一致：
       图片宽高都大于 <code>1024</code> 时，使用 <code>96px</code> 水印和 <code>64px</code> 边距；否则使用 <code>48px</code> 水印和 <code>32px</code> 边距。
@@ -403,6 +403,18 @@
         URL.revokeObjectURL(objectUrl);
       };
       img.src = objectUrl;
+    }
+
+    function findImageFileFromClipboard(event) {
+      const items = Array.from(event.clipboardData?.items || []);
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          return item.getAsFile();
+        }
+      }
+
+      const files = Array.from(event.clipboardData?.files || []);
+      return files.find((file) => file.type.startsWith("image/")) || null;
     }
 
     function loadMask(size) {
@@ -532,6 +544,17 @@
         }
         updateDropTarget(false);
       });
+    });
+
+    window.addEventListener("paste", (event) => {
+      const file = findImageFileFromClipboard(event);
+      if (!file) {
+        updateStatusWithOfflineHint("剪贴板里没有检测到图片，请先复制一张图片再粘贴。");
+        return;
+      }
+
+      event.preventDefault();
+      loadSelectedFile(file);
     });
 
     window.addEventListener("offline", () => {
