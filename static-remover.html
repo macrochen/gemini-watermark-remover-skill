@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gemini Watermark Remover</title>
+  <meta name="description" content="在浏览器本地去除 Gemini 图片右下角水印，不上传文件，适合直接部署到 GitHub Pages。">
+  <meta name="theme-color" content="#0d7a5f">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
   <style>
     :root {
       --bg: #f5f1e8;
@@ -195,11 +199,19 @@
       place-items: center;
       border-radius: 18px;
       overflow: hidden;
+      transition: border-color 140ms ease, transform 140ms ease, background-color 140ms ease;
+      border: 1px dashed transparent;
       background:
         linear-gradient(45deg, rgba(13, 122, 95, 0.05) 25%, transparent 25%, transparent 75%, rgba(13, 122, 95, 0.05) 75%),
         linear-gradient(45deg, rgba(13, 122, 95, 0.05) 25%, transparent 25%, transparent 75%, rgba(13, 122, 95, 0.05) 75%);
       background-position: 0 0, 14px 14px;
       background-size: 28px 28px;
+    }
+
+    .canvas-wrap.is-drop-target {
+      border-color: rgba(13, 122, 95, 0.28);
+      background-color: rgba(255, 255, 255, 0.82);
+      transform: translateY(-1px);
     }
 
     canvas {
@@ -221,6 +233,10 @@
       padding: 20px 24px;
       color: var(--muted);
       line-height: 1.7;
+    }
+
+    .note strong {
+      color: var(--ink);
     }
 
     code {
@@ -247,9 +263,9 @@
 <body>
   <main class="shell">
     <section class="hero">
-      <div class="eyebrow">Static HTML Tool</div>
+      <div class="eyebrow">Static HTML + GitHub Pages</div>
       <h1>Gemini Watermark Remover</h1>
-      <p>这个页面复用了 <code>gemini-watermark-remover-skill</code> 的核心反推算法：基于 Gemini 固定右下角遮罩和 alpha 关系，恢复被白色水印覆盖的底图像素。整个流程都在浏览器本地完成，不上传文件。</p>
+      <p>这个页面复用了 <code>gemini-watermark-remover-skill</code> 的核心反推算法：基于 Gemini 固定右下角遮罩和 alpha 关系，恢复被白色水印覆盖的底图像素。整个流程都在浏览器本地完成，不上传文件，适合直接放到 GitHub Pages 使用。</p>
     </section>
 
     <section class="workspace">
@@ -288,7 +304,9 @@
     </section>
 
     <section class="note">
-      页面内置了两套 Gemini 遮罩：<code>48px</code> 和 <code>96px</code>。判断规则与原脚本一致：
+      <strong>使用方式：</strong>点击“选择图片”或直接把图片拖进页面即可。根路径 <code>/</code> 会自动打开这个工具页，首次联网访问后也会缓存基础资源，之后离线仍可继续使用。
+      <br>
+      <strong>处理规则：</strong>页面内置了两套 Gemini 遮罩：<code>48px</code> 和 <code>96px</code>。判断规则与原脚本一致：
       图片宽高都大于 <code>1024</code> 时，使用 <code>96px</code> 水印和 <code>64px</code> 边距；否则使用 <code>48px</code> 水印和 <code>32px</code> 边距。
     </section>
   </main>
@@ -315,6 +333,11 @@
 
     let loadedImage = null;
     let loadedFileName = "gemini-image.png";
+
+    function updateStatusWithOfflineHint(text) {
+      const offlineHint = navigator.onLine ? "" : " 当前处于离线模式。";
+      setStatus(text + offlineHint);
+    }
 
     function setStatus(text) {
       statusNode.textContent = text;
@@ -344,6 +367,42 @@
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(image, 0, 0);
+    }
+
+    function updateDropTarget(active) {
+      [originalWrap, processedWrap].forEach((wrap) => {
+        wrap.classList.toggle("is-drop-target", active);
+      });
+    }
+
+    function loadSelectedFile(file) {
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        updateStatusWithOfflineHint("这不是图片文件，请重新选择 PNG、JPG 或 WebP。");
+        return;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        loadedImage = img;
+        loadedFileName = file.name;
+        drawImageToCanvas(img, originalCanvas);
+        showCanvas(originalCanvas, originalWrap);
+        hideCanvas(processedCanvas, processedWrap, "点击“去除水印”后，这里会生成清洗结果。");
+        originalMeta.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+        processedMeta.textContent = "未处理";
+        removeBtn.disabled = false;
+        resetBtn.disabled = false;
+        downloadBtn.disabled = true;
+        updateStatusWithOfflineHint("图片已加载，点击“去除水印”开始处理。");
+        URL.revokeObjectURL(objectUrl);
+      };
+      img.onerror = () => {
+        updateStatusWithOfflineHint("图片读取失败，请换一张再试。");
+        URL.revokeObjectURL(objectUrl);
+      };
+      img.src = objectUrl;
     }
 
     function loadMask(size) {
@@ -377,7 +436,7 @@
 
     async function processCurrentImage() {
       if (!loadedImage) {
-        setStatus("请先上传图片。");
+        updateStatusWithOfflineHint("请先上传图片。");
         return;
       }
 
@@ -388,11 +447,11 @@
       const startY = height - marginBottom - logoSize;
 
       if (startX < 0 || startY < 0) {
-        setStatus("图片尺寸过小，无法匹配 Gemini 水印区域。");
+        updateStatusWithOfflineHint("图片尺寸过小，无法匹配 Gemini 水印区域。");
         return;
       }
 
-      setStatus(`正在按 ${logoSize}px 遮罩处理右下角区域...`);
+      updateStatusWithOfflineHint(`正在按 ${logoSize}px 遮罩处理右下角区域...`);
 
       const maskImageData = await loadMask(logoSize);
       drawImageToCanvas(loadedImage, processedCanvas);
@@ -418,40 +477,18 @@
       showCanvas(processedCanvas, processedWrap);
       processedMeta.textContent = `${width} × ${height} · mask ${logoSize}px`;
       downloadBtn.disabled = false;
-      setStatus("处理完成，可以预览或下载结果。");
+      updateStatusWithOfflineHint("处理完成，可以预览或下载结果。");
     }
 
     imageInput.addEventListener("change", () => {
       const [file] = imageInput.files || [];
-      if (!file) return;
-
-      const objectUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        loadedImage = img;
-        loadedFileName = file.name;
-        drawImageToCanvas(img, originalCanvas);
-        showCanvas(originalCanvas, originalWrap);
-        hideCanvas(processedCanvas, processedWrap, "点击“去除水印”后，这里会生成清洗结果。");
-        originalMeta.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
-        processedMeta.textContent = "未处理";
-        removeBtn.disabled = false;
-        resetBtn.disabled = false;
-        downloadBtn.disabled = true;
-        setStatus("图片已加载，点击“去除水印”开始处理。");
-        URL.revokeObjectURL(objectUrl);
-      };
-      img.onerror = () => {
-        setStatus("图片读取失败，请换一张再试。");
-        URL.revokeObjectURL(objectUrl);
-      };
-      img.src = objectUrl;
+      loadSelectedFile(file);
     });
 
     removeBtn.addEventListener("click", () => {
       processCurrentImage().catch((error) => {
         console.error(error);
-        setStatus(`处理失败：${error.message}`);
+        updateStatusWithOfflineHint(`处理失败：${error.message}`);
       });
     });
 
@@ -476,8 +513,44 @@
       resetBtn.disabled = true;
       hideCanvas(originalCanvas, originalWrap, "上传图片后会在这里显示原图预览。");
       hideCanvas(processedCanvas, processedWrap, "点击“去除水印”后，这里会生成清洗结果。");
-      setStatus("已重置，等待导入一张 Gemini 图片。");
+      updateStatusWithOfflineHint("已重置，等待导入一张 Gemini 图片。");
     });
+
+    ["dragenter", "dragover"].forEach((eventName) => {
+      window.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        updateDropTarget(true);
+      });
+    });
+
+    ["dragleave", "drop"].forEach((eventName) => {
+      window.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        if (eventName === "drop") {
+          const [file] = event.dataTransfer?.files || [];
+          loadSelectedFile(file);
+        }
+        updateDropTarget(false);
+      });
+    });
+
+    window.addEventListener("offline", () => {
+      if (statusNode.textContent) {
+        updateStatusWithOfflineHint(statusNode.textContent.replace(" 当前处于离线模式。", ""));
+      }
+    });
+
+    window.addEventListener("online", () => {
+      setStatus(statusNode.textContent.replace(" 当前处于离线模式。", ""));
+    });
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch((error) => {
+          console.error("Service worker registration failed:", error);
+        });
+      });
+    }
   </script>
 </body>
 </html>

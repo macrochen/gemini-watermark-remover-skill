@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Gemini Watermark Remover">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d7a5f"/>
+      <stop offset="100%" stop-color="#be7843"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="#f7f3eb"/>
+  <rect x="28" y="28" width="200" height="200" rx="36" fill="url(#bg)" opacity="0.16"/>
+  <path d="M76 82h104a18 18 0 0 1 18 18v56a18 18 0 0 1-18 18H76a18 18 0 0 1-18-18v-56a18 18 0 0 1 18-18Z" fill="none" stroke="#1f2a24" stroke-width="12"/>
+  <path d="m92 152 28-34 22 22 22-28" fill="none" stroke="#0d7a5f" stroke-linecap="round" stroke-linejoin="round" stroke-width="14"/>
+  <path d="m152 92 32 32" stroke="#be7843" stroke-linecap="round" stroke-width="16"/>
+  <path d="m184 92-32 32" stroke="#be7843" stroke-linecap="round" stroke-width="16"/>
+</svg>

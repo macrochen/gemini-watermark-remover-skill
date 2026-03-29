@@ -1,0 +1,18 @@
+{
+  "name": "Gemini Watermark Remover",
+  "short_name": "Watermark Remover",
+  "description": "在浏览器本地去除 Gemini 图片右下角水印，不上传文件。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f3eb",
+  "theme_color": "#0d7a5f",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
