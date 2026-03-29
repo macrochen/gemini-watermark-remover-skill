@@ -306,8 +306,7 @@
     <section class="note">
       <strong>使用方式：</strong>点击“选择图片”、直接把图片拖进页面，或复制图片后在页面里按 <code>Ctrl/Cmd + V</code> 即可。根路径 <code>/</code> 会自动打开这个工具页，首次联网访问后也会缓存基础资源，之后离线仍可继续使用。
       <br>
-      <strong>处理规则：</strong>页面内置了两套 Gemini 遮罩：<code>48px</code> 和 <code>96px</code>。判断规则与原脚本一致：
-      图片宽高都大于 <code>1024</code> 时，使用 <code>96px</code> 水印和 <code>64px</code> 边距；否则使用 <code>48px</code> 水印和 <code>32px</code> 边距。
+      <strong>处理规则：</strong>页面内置了两套 Gemini 遮罩：<code>48px</code> 和 <code>96px</code>。处理时会优先在右下角自动搜索最匹配的位置，再进行恢复，兼容不同尺寸和边距版本。
     </section>
   </main>
 
@@ -439,11 +438,74 @@
       });
     }
 
-    function getWatermarkConfig(width, height) {
-      if (width > 1024 && height > 1024) {
-        return { logoSize: 96, marginRight: 64, marginBottom: 64 };
+    function buildAlphaMap(maskImageData) {
+      const { width, height, data } = maskImageData;
+      const alphaMap = new Float32Array(width * height);
+      for (let index = 0; index < width * height; index += 1) {
+        const pixelIndex = index * 4;
+        alphaMap[index] = Math.max(data[pixelIndex], data[pixelIndex + 1], data[pixelIndex + 2]) / 255;
       }
-      return { logoSize: 48, marginRight: 32, marginBottom: 32 };
+      return alphaMap;
+    }
+
+    function getCandidateMaskSizes(width, height) {
+      const sizes = [];
+      if (width >= 96 && height >= 96) sizes.push(96);
+      if (width >= 48 && height >= 48) sizes.push(48);
+      return sizes;
+    }
+
+    function detectWatermarkConfig(imageData) {
+      const { width, height, data } = imageData;
+      const candidateSizes = getCandidateMaskSizes(width, height);
+      let bestMatch = null;
+
+      for (const logoSize of candidateSizes) {
+        const maskImageData = maskCache.get(logoSize);
+        const alphaMap = buildAlphaMap(maskImageData);
+        const maxOffsetX = Math.min(Math.max(Math.floor(width * 0.1), 24), 96);
+        const maxOffsetY = Math.min(Math.max(Math.floor(height * 0.12), 24), 96);
+
+        for (let offsetY = 0; offsetY <= maxOffsetY; offsetY += 1) {
+          for (let offsetX = 0; offsetX <= maxOffsetX; offsetX += 1) {
+            const startX = width - logoSize - offsetX;
+            const startY = height - logoSize - offsetY;
+            if (startX < 0 || startY < 0) continue;
+
+            let overflowPenalty = 0;
+            let confidence = 0;
+
+            for (let row = 0; row < logoSize; row += 1) {
+              for (let col = 0; col < logoSize; col += 1) {
+                const imageIndex = ((startY + row) * width + (startX + col)) * 4;
+                const alpha = alphaMap[row * logoSize + col];
+                if (alpha < 0.01) continue;
+
+                const denominator = Math.max(1 - alpha, 0.01);
+
+                for (let channel = 0; channel < 3; channel += 1) {
+                  const restored = (data[imageIndex + channel] - 255 * alpha) / denominator;
+                  if (restored < 0) {
+                    overflowPenalty += -restored;
+                  } else if (restored > 255) {
+                    overflowPenalty += restored - 255;
+                  }
+                }
+
+                confidence += alpha;
+              }
+            }
+
+            const score = overflowPenalty - confidence * 0.15 + offsetX * 0.35 + offsetY * 0.35;
+
+            if (!bestMatch || score < bestMatch.score) {
+              bestMatch = { logoSize, startX, startY, offsetX, offsetY, score };
+            }
+          }
+        }
+      }
+
+      return bestMatch;
     }
 
     async function processCurrentImage() {
@@ -454,22 +516,24 @@
 
       const width = loadedImage.naturalWidth;
       const height = loadedImage.naturalHeight;
-      const { logoSize, marginRight, marginBottom } = getWatermarkConfig(width, height);
-      const startX = width - marginRight - logoSize;
-      const startY = height - marginBottom - logoSize;
-
-      if (startX < 0 || startY < 0) {
-        updateStatusWithOfflineHint("图片尺寸过小，无法匹配 Gemini 水印区域。");
-        return;
-      }
-
-      updateStatusWithOfflineHint(`正在按 ${logoSize}px 遮罩处理右下角区域...`);
-
-      const maskImageData = await loadMask(logoSize);
       drawImageToCanvas(loadedImage, processedCanvas);
       const ctx = processedCanvas.getContext("2d", { willReadFrequently: true });
       const imageData = ctx.getImageData(0, 0, processedCanvas.width, processedCanvas.height);
       const pixels = imageData.data;
+
+      const candidateSizes = getCandidateMaskSizes(width, height);
+      await Promise.all(candidateSizes.map((size) => loadMask(size)));
+
+      const config = detectWatermarkConfig(imageData);
+      if (!config) {
+        updateStatusWithOfflineHint("图片尺寸过小，无法匹配 Gemini 水印区域。");
+        return;
+      }
+
+      const { logoSize, startX, startY, offsetX, offsetY } = config;
+      updateStatusWithOfflineHint(`正在按 ${logoSize}px 遮罩处理右下角区域，自动定位偏移 ${offsetX}px / ${offsetY}px...`);
+
+      const maskImageData = maskCache.get(logoSize);
       const maskPixels = maskImageData.data;
 
       for (let row = 0; row < logoSize; row += 1) {
@@ -487,7 +551,7 @@
 
       ctx.putImageData(imageData, 0, 0);
       showCanvas(processedCanvas, processedWrap);
-      processedMeta.textContent = `${width} × ${height} · mask ${logoSize}px`;
+      processedMeta.textContent = `${width} × ${height} · mask ${logoSize}px · offset ${offsetX}/${offsetY}`;
       downloadBtn.disabled = false;
       updateStatusWithOfflineHint("处理完成，可以预览或下载结果。");
     }
