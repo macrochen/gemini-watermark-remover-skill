@@ -24,9 +24,9 @@ description: 去除 Gemini 生成图片右下角水印，输出清洗后的图�
    - 无明确路径时，可识别 `~/Downloads` 中最近修改的图片文件。
 2. **执行去水印脚本**
    - 标准模式：
-     `./.venv/bin/python .gemini/skills/gemini-watermark-remover-skill/remover.py "<input_image_path>"`
+     `./.venv/bin/python ~/.agents/skills/gemini-watermark-remover-skill/remover.py "<input_image_path>"`
    - 复制模式：
-     `./.venv/bin/python .gemini/skills/gemini-watermark-remover-skill/remover.py "<input_image_path>" --copy`
+     `./.venv/bin/python ~/.agents/skills/gemini-watermark-remover-skill/remover.py "<input_image_path>" --copy`
 3. **返回结果**
    - 明确告知清洗后图片的输出路径。
 

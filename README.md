@@ -9,7 +9,7 @@ This skill is intended to run in the local Codex/Gemini skill workspace.
 If you are working in this repository, use the skill directly from:
 
 ```bash
-.gemini/skills/gemini-watermark-remover-skill
+~/.agents/skills/gemini-watermark-remover-skill
 ```
 
 ## Documentation
@@ -23,7 +23,7 @@ If you are working in this repository, use the skill directly from:
 ## Command
 
 ```bash
-./.venv/bin/python .gemini/skills/gemini-watermark-remover-skill/remover.py "<input_image_path>"
+./.venv/bin/python ~/.agents/skills/gemini-watermark-remover-skill/remover.py "<input_image_path>"
 ```
 
 ## 默认输出位置
